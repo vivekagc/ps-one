@@ -1,0 +1,52 @@
+del -Path C:\scripts\Test.html -ErrorAction SilentlyContinue
+
+$Style = "
+<style>
+    BODY{background-color:#b0c4de;}
+    TABLE{border-width: 1px;border-style: solid;border-color: black;border-collapse: collapse;}
+    TH{border-width: 1px;padding: 3px;border-style: solid;border-color: black;background-color:#778899}
+    TD{border-width: 1px;padding: 3px;border-style: solid;border-color: black;}
+    tr:nth-child(odd) { background-color:#d3d3d3;} 
+    tr:nth-child(even) { background-color:white;}    
+</style>
+"
+
+$html = @"
+<H2>AgOnDemand SSL Cert Expiry Information Page</H2>
+"@
+ConvertTo-Html -Title "<title>AgOndemand Cert Info</title>" -Body "<h1> $html </h1>" |out-file C:\scripts\Test.html -Append
+$minimumCertAgeDays = 30
+ $timeoutMilliseconds = 10000
+ $urls = @(
+ #
+ "https://ppdval.agondemand.biz/SIR",
+ "https://10.5.40.21:4080/ipnet/msgsrv",
+ "https://technet.microsoft.com/en-us/library/ee156817.aspx",
+ "https://10.15.46.23:4080/ipnet/msgsrv/WebApp"
+ "https://10.15.15.22:4080/ipnet/msgsrv/WebApp"
+ )
+#disabling the cert validation check. This is what makes this whole thing work with invalid certs...
+ [Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
+foreach ($url in $urls)
+ {
+ Write-Host Checking $url -f Green
+ $req = [Net.HttpWebRequest]::Create($url)
+ $req.Timeout = $timeoutMilliseconds
+try {$req.GetResponse() |Out-Null} catch {Write-Host Exception while checking URL $url`: $_ -f Red -ErrorAction SilentlyContinue}
+[datetime]$expiration = $req.ServicePoint.Certificate.GetExpirationDateString()
+ [int]$certExpiresIn = ($expiration - $(get-date)).Days
+$certName = $req.ServicePoint.Certificate.GetName()
+ $certPublicKeyString = $req.ServicePoint.Certificate.GetPublicKeyString()
+ $certSerialNumber = $req.ServicePoint.Certificate.GetSerialNumberString()
+ $certThumbprint = $req.ServicePoint.Certificate.GetCertHashString()
+ $certEffectiveDate = $req.ServicePoint.Certificate.GetEffectiveDateString()
+ $certIssuer = $req.ServicePoint.Certificate.GetIssuerName()
+ 
+if ($certExpiresIn -lt $minimumCertAgeDays)
+ {ConvertTo-Html "<font color=Blue> $url </font>", "<span style=color:red;font-weight:bold> $certExpiresIn </span>",{days},{on}, $expiration  -Title "Cert Info Page"  -Property *  | Out-file C:\Scripts\Test.html -append}
+ else
+ {Write-Host Cert for site $url expires in $certExpiresIn days [on $expiration] Threshold is $minimumCertAgeDays days. Check details:`n`nCert name: $certName`nCert public key: $certPublicKeyString`nCert serial number: $certSerialNumber`nCert thumbprint: $certThumbprint`nCert effective date: $certEffectiveDate`nCert issuer: $certIssuer` -f green}
+rv req
+ rv expiration
+ rv certExpiresIn
+}
