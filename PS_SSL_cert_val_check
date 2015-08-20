@@ -1,0 +1,54 @@
+$path = 'C:\scripts\CertCheck.html'
+
+del -Path $path -ErrorAction SilentlyContinue
+
+$Style = "
+<style>
+    BODY{background-color:#b0c4de;}
+    TABLE{border-width: 1px;border-style: solid;border-color: black;border-collapse: collapse;}
+    TH{border-width: 1px;padding: 3px;border-style: solid;border-color: black;background-color:#778899}
+    TD{border-width: 1px;padding: 3px;border-style: solid;border-color: black;}
+    tr:nth-child(odd) { background-color:#d3d3d3;} 
+    tr:nth-child(even) { background-color:white;}    
+</style>
+"
+
+$html = @"
+<H2>AgOnDemand SSL Cert Expiry Information Page</H2>
+"@
+ConvertTo-Html -Title "<title>AgOndemand Cert Info</title>" -Body "<h1> $html </h1>" |out-file $path -Append
+$minimumCertAgeDays = 60
+ $timeoutMilliseconds = 10000
+
+ $Cert = Import-Csv -Path C:\Scripts\cert.csv
+
+#disabling the cert validation check. This is what makes this whole thing work with invalid certs...
+ [Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
+ foreach ($client in $Cert)
+{ 
+ $clients= $client.clients
+ $url = $client.url
+ Write-Host Checking $url -f Green
+ $req = [Net.HttpWebRequest]::Create($url)
+ $req.Timeout = $timeoutMilliseconds
+try {$req.GetResponse() |Out-Null} catch {Write-Host Exception while checking URL $url`: $_ -f Red -ErrorAction SilentlyContinue}
+[datetime]$expiration = $req.ServicePoint.Certificate.GetExpirationDateString() 
+ [int]$certExpiresIn = ($expiration - $(get-date)).Days
+ $certName = $req.ServicePoint.Certificate.GetName()
+ $certPublicKeyString = $req.ServicePoint.Certificate.GetPublicKeyString()
+ $certSerialNumber = $req.ServicePoint.Certificate.GetSerialNumberString()
+ $certThumbprint = $req.ServicePoint.Certificate.GetCertHashString()
+ $certEffectiveDate = $req.ServicePoint.Certificate.GetEffectiveDateString()
+ $certIssuer = $req.ServicePoint.Certificate.GetIssuerName()
+if ($certExpiresIn -gt $minimumCertAgeDays)
+ {Write-Host "Cert for $clients is valid for more than $minimumCertAgeDays Days" -ForegroundColor DarkGreen }
+ else
+ {ConvertTo-Html "<font color=Blue> $url </font>", "<span style=color:red;font-weight:bold> $certExpiresIn </span>","<span style=color:Black;font-weight:bold> days </span>",{on},"<span style=color:IndianRed;font-weight:bold> $expiration</span>", for,{ },"<span style=color:DarkBlue;font-weight:bold> $clients </span>" -Title "Cert Info Page"   -Property * -ErrorAction SilentlyContinue | Out-file $path -append}
+}
+ls -Path $path | where {$_.Length -lt 1kb} | Remove-Item -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 15
+$emailHTML = Get-Content -Path $path -ErrorAction SilentlyContinue |Out-String 
+if (test-path $path)
+
+{Send-MailMessage -BodyAsHtml -To "vivek.s@arisglobal.com" -From "donotreply.certalert@agondemand.co.in"`
+ -Body $emailHTML -Subject "AgOndemand SSL Cert Exiration List"  -SmtpServer "10.5.18.54"}
